@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import UploadForm from "@/components/UploadForm";
 import Viewer3D from "@/components/Viewer3D";
-import TwoDToThreeDConverter from "@/components/TwoDToThreeDConverter";
 import axios from "axios";
 
 export default function UploadPage() {
@@ -188,23 +187,10 @@ export default function UploadPage() {
           </div>
         )}
 
-        {urn && accessToken && !loading && !conversionError && is2D && (
-          <div className="mb-8">
-            <TwoDToThreeDConverter
-              fileName={fileName}
-              fileType={fileType}
-              urn={urn}              // Base64 URN from Forge upload API
-              onRetry={handleRetry}
-            />
-
-
-          </div>
-        )}
-
-        {urn && accessToken && !loading && !conversionError && !is2D && (
+        {urn && accessToken && !loading && !conversionError && (
           <div className="bg-white rounded-lg shadow-lg p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-800">3D Model Viewer</h2>
+              <h2 className="text-xl font-semibold text-gray-800">Model Viewer</h2>
               <button
                 onClick={handleRetry}
                 className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors text-sm"
@@ -212,6 +198,11 @@ export default function UploadPage() {
                 Upload New File
               </button>
             </div>
+            {is2D && (
+              <div className="mb-4 p-3 rounded bg-yellow-50 text-yellow-800 text-sm">
+                Detected a 2D drawing. The viewer will display 2D sheets. Converting 2D to 3D requires manual modeling or external services.
+              </div>
+            )}
             <Viewer3D
               urn={urn}
               accessToken={accessToken}

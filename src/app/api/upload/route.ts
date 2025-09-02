@@ -13,7 +13,7 @@
         const fileName = file.name;
 
         // 1️⃣ Get OAuth token
-        const tokenRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/forge-token`);
+        const tokenRes:any = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/forge-token`);
         const tokenData = await tokenRes.json();
         if (!tokenRes.ok) throw new Error(tokenData.error || "Failed to fetch token");
         const accessToken = tokenData.access_token;
@@ -27,7 +27,7 @@
         }
         );
 
-        const signedData = await signedUrlRes.json();
+        const signedData:any = await signedUrlRes.json();
         if (!signedUrlRes.ok || !signedData.urls || signedData.urls.length === 0) {
         console.error("Signed URL error:", signedData);
         throw new Error("Failed to get signed upload URL");
@@ -62,7 +62,7 @@
         }
         );
 
-        const finalizeData = await finalizeRes.json();
+        const finalizeData:any = await finalizeRes.json();
         if (!finalizeRes.ok || !finalizeData.objectId) {
         console.error("Finalize Error:", finalizeData);
         throw new Error("Failed to finalize upload");

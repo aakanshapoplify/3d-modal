@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     if (!tokenRes.ok) {
       return NextResponse.json({ error: "Failed to get access token" }, { status: 500 });
     }
-    const tokenData = await tokenRes.json();
+    const tokenData:any = await tokenRes.json();
 
     console.log("Starting conversion for URN:", urn);
 

@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     if (!tokenRes.ok) {
       return NextResponse.json({ status: "error", message: "Failed to fetch access token" }, { status: 500 });
     }
-    const tokenData = await tokenRes.json();
+    const tokenData:any = await tokenRes.json();
 
     // 2️⃣ Fetch manifest from Forge
     const res = await fetch(
