@@ -5,16 +5,10 @@ import { OrbitControls, Environment, Html, useGLTF, TransformControls, PointerLo
 import { DoubleSide, Color, Vector3, Group, MOUSE } from "three";
 import dynamic from "next/dynamic";
 
-function FirstPersonWalk({ enabled }: { enabled: boolean }) {
+function FirstPersonWalk({ enabled, floorY }: { enabled: boolean; floorY: number }) {
   const { camera } = useThree();
   const keys = useRef<Record<string, boolean>>({});
-  const floorYRef = useRef(0);
   const speedRef = useRef(0.06);
-
-  useEffect(() => {
-    const b = (typeof window !== 'undefined') ? (window as any).__modelBounds : undefined;
-    if (b?.min) floorYRef.current = b.min[1] + 1.6;
-  }, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -43,12 +37,12 @@ function FirstPersonWalk({ enabled }: { enabled: boolean }) {
         camera.position.x = Math.min(Math.max(camera.position.x, b.min[0] + 0.2), b.max[0] - 0.2);
         camera.position.z = Math.min(Math.max(camera.position.z, b.min[2] + 0.2), b.max[2] - 0.2);
       }
-      camera.position.y = floorYRef.current || camera.position.y;
+      camera.position.y = floorY;
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
-  }, [enabled, camera]);
+  }, [enabled, camera, floorY]);
 
   return null;
 }
@@ -359,7 +353,11 @@ function R3FViewerComponent({
   const [transformMode, setTransformMode] = useState<'none' | 'translate' | 'rotate' | 'scale'>('none');
   const [showHints, setShowHints] = useState(true);
   const [firstPerson, setFirstPerson] = useState(false);
+  const [walkFloorIdx, setWalkFloorIdx] = useState(0);
   const ariaRef = useRef<HTMLDivElement | null>(null);
+
+  const floors = [0, 3, 6, 9, 12];
+  const currentFloorY = Math.max(0, floors[Math.max(0, Math.min(walkFloorIdx, floors.length - 1))]) + 1.6;
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -387,10 +385,15 @@ function R3FViewerComponent({
         setSelectedFurniture(null);
         setSelectedFurnitureModel(null);
       }
+      if (firstPerson) {
+        if (e.code === 'PageUp') setWalkFloorIdx((i) => Math.min(i + 1, floors.length - 1));
+        if (e.code === 'PageDown') setWalkFloorIdx((i) => Math.max(i - 1, 0));
+        if (e.code === 'Digit0') setWalkFloorIdx(0);
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [mounted, selectedFurniture, editMode, setEditMode]);
+  }, [mounted, selectedFurniture, editMode, setEditMode, firstPerson]);
 
   const handleFurnitureUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -448,8 +451,8 @@ function R3FViewerComponent({
   const handlePlaceAtPoint = (point: { x: number; y: number; z: number }) => {
     if (!editMode || !selectedFurnitureModel || !mounted) return;
     const grid = 0.25;
-    const floors = [0, 3, 6, 9, 12];
-    const nearestFloor = floors.reduce((prev, cur) => Math.abs(cur - point.y) < Math.abs(prev - point.y) ? cur : prev, floors[0]);
+    const floorsLocal = [0, 3, 6, 9, 12];
+    const nearestFloor = floorsLocal.reduce((prev, cur) => Math.abs(cur - point.y) < Math.abs(prev - point.y) ? cur : prev, floorsLocal[0]);
     const position: [number, number, number] = [
       Math.round(point.x / grid) * grid,
       nearestFloor,
@@ -535,17 +538,25 @@ function R3FViewerComponent({
           {firstPerson && (
             <PointerLockControls selector="#enter-fp" />
           )}
-          <FirstPersonWalk enabled={firstPerson} />
+          <FirstPersonWalk enabled={firstPerson} floorY={currentFloorY} />
         </Canvas>
         <div className="absolute left-3 bottom-3 flex gap-3 items-center pointer-events-auto">
           <button id="enter-fp" className="px-3 py-1 text-xs rounded bg-indigo-600 text-white">{firstPerson ? 'Pointer Locked' : 'Enter 360'}</button>
           <label className="flex items-center gap-1 text-xs text-gray-700 select-none">
             <input type="checkbox" checked={firstPerson} onChange={(e) => setFirstPerson(e.target.checked)} /> 360 Walk
           </label>
+          {firstPerson && (
+            <>
+              <button onClick={() => setWalkFloorIdx((i) => Math.max(i - 1, 0))} className="px-2 py-1 text-xs rounded bg-gray-200">Floor -</button>
+              <button onClick={() => setWalkFloorIdx((i) => Math.min(i + 1, floors.length - 1))} className="px-2 py-1 text-xs rounded bg-gray-200">Floor +</button>
+              <button onClick={() => setWalkFloorIdx(0)} className="px-2 py-1 text-xs rounded bg-gray-700 text-white">Ground</button>
+            </>
+          )}
         </div>
         {showHints && (
-          <div className="absolute left-3 bottom-14 text-[11px] text-gray-700 bg-white/90 px-3 py-2 rounded shadow border">
-            Drag to look • Scroll to zoom • Check 360 Walk to move (WASD)
+          <div className="absolute left-3 bottom-16 text-[11px] text-gray-700 bg-white/90 px-3 py-2 rounded shadow border">
+            Drag to look • Scroll to zoom • 360 Walk: WASD
+            <br />Use Floor+/Floor- or PageUp/PageDown • 0 = Ground
           </div>
         )}
         <div className="sr-only" aria-live="polite" ref={ariaRef as any} />
