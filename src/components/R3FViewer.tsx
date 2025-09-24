@@ -1,9 +1,57 @@
 "use client";
 import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
-import { OrbitControls, Environment, Html, useGLTF, TransformControls } from "@react-three/drei";
+import { OrbitControls, Environment, Html, useGLTF, TransformControls, PointerLockControls } from "@react-three/drei";
 import { DoubleSide, Color, Vector3, Group, MOUSE } from "three";
 import dynamic from "next/dynamic";
+
+function FirstPersonWalk({ enabled }: { enabled: boolean }) {
+  const { camera } = useThree();
+  const keys = useRef<Record<string, boolean>>({});
+  const floorYRef = useRef(0);
+  const speedRef = useRef(0.06);
+
+  useEffect(() => {
+    const b = (typeof window !== 'undefined') ? (window as any).__modelBounds : undefined;
+    if (b?.min) floorYRef.current = b.min[1] + 1.6;
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const kd = (e: KeyboardEvent) => { keys.current[e.code] = true; };
+    const ku = (e: KeyboardEvent) => { keys.current[e.code] = false; };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    let raf = 0;
+    const loop = () => {
+      if (!enabled) return;
+      const THREE = require('three');
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const forward = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize().negate();
+      const speed = (keys.current['ShiftLeft'] || keys.current['ShiftRight']) ? speedRef.current * 2 : speedRef.current;
+      const deltaMove = new THREE.Vector3();
+      if (keys.current['KeyW'] || keys.current['ArrowUp']) deltaMove.add(forward.multiplyScalar(speed));
+      if (keys.current['KeyS'] || keys.current['ArrowDown']) deltaMove.add(forward.multiplyScalar(-speed));
+      if (keys.current['KeyA'] || keys.current['ArrowLeft']) deltaMove.add(right.multiplyScalar(-speed));
+      if (keys.current['KeyD'] || keys.current['ArrowRight']) deltaMove.add(right.multiplyScalar(speed));
+      camera.position.add(deltaMove);
+
+      const b = (typeof window !== 'undefined') ? (window as any).__modelBounds : undefined;
+      if (b?.min && b?.max) {
+        camera.position.x = Math.min(Math.max(camera.position.x, b.min[0] + 0.2), b.max[0] - 0.2);
+        camera.position.z = Math.min(Math.max(camera.position.z, b.min[2] + 0.2), b.max[2] - 0.2);
+      }
+      camera.position.y = floorYRef.current || camera.position.y;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
+  }, [enabled, camera]);
+
+  return null;
+}
 
 interface FurnitureModel {
   id: string;
@@ -310,6 +358,7 @@ function R3FViewerComponent({
   const [loadingFurniture, setLoadingFurniture] = useState(false);
   const [transformMode, setTransformMode] = useState<'none' | 'translate' | 'rotate' | 'scale'>('none');
   const [showHints, setShowHints] = useState(true);
+  const [firstPerson, setFirstPerson] = useState(false);
   const ariaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
@@ -469,22 +518,34 @@ function R3FViewerComponent({
             )}
             <Environment preset="city" />
           </Suspense>
-          <OrbitControls 
-            enableDamping 
-            makeDefault 
-            autoRotate={false}
-            enableZoom={true}
-            enableRotate={true}
-            mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }}
-            zoomSpeed={1.0}
-            minDistance={0.2}
-            maxDistance={200}
-            enabled={!(typeof window !== 'undefined' && (window as any).__disableOrbit)}
-          />
+          {!firstPerson && (
+            <OrbitControls 
+              enableDamping 
+              makeDefault 
+              autoRotate={false}
+              enableZoom={true}
+              enableRotate={true}
+              mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }}
+              zoomSpeed={1.0}
+              minDistance={0.2}
+              maxDistance={200}
+              enabled={!(typeof window !== 'undefined' && (window as any).__disableOrbit)}
+            />
+          )}
+          {firstPerson && (
+            <PointerLockControls selector="#enter-fp" />
+          )}
+          <FirstPersonWalk enabled={firstPerson} />
         </Canvas>
+        <div className="absolute left-3 bottom-3 flex gap-3 items-center pointer-events-auto">
+          <button id="enter-fp" className="px-3 py-1 text-xs rounded bg-indigo-600 text-white">{firstPerson ? 'Pointer Locked' : 'Enter 360'}</button>
+          <label className="flex items-center gap-1 text-xs text-gray-700 select-none">
+            <input type="checkbox" checked={firstPerson} onChange={(e) => setFirstPerson(e.target.checked)} /> 360 Walk
+          </label>
+        </div>
         {showHints && (
-          <div className="absolute left-3 bottom-3 text-[11px] text-gray-700 bg-white/90 px-3 py-2 rounded shadow border">
-            Drag to look • Scroll to zoom
+          <div className="absolute left-3 bottom-14 text-[11px] text-gray-700 bg-white/90 px-3 py-2 rounded shadow border">
+            Drag to look • Scroll to zoom • Check 360 Walk to move (WASD)
           </div>
         )}
         <div className="sr-only" aria-live="polite" ref={ariaRef as any} />
