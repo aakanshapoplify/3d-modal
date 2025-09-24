@@ -46,7 +46,6 @@ export default function R3FViewerPage() {
           <h1 className="text-2xl font-semibold">3D Model Editor</h1>
           <p className="text-gray-600">Upload an .obj file or use the default model to test editing features.</p>
         </div>
-        
         <div className="bg-white p-4 rounded-lg shadow mb-6">
           <div className="flex gap-4 items-center mb-4">
             <button
@@ -67,7 +66,6 @@ export default function R3FViewerPage() {
               className="px-4 py-2 border rounded"
             />
           </div>
-          
           {isConverting && <p className="text-sm text-gray-600 mt-2">Converting to GLB...</p>}
           {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
         </div>
@@ -104,8 +102,7 @@ export default function R3FViewerPage() {
         )}
 
         {(glbUrl || useDefaultModel) && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 h-[calc(100vh-140px)]">
-            {/* Edit Sidebar - Only show when edit mode is active */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 lg:h-[calc(100vh-140px)]">
             {editMode && editControls && (
               <div className="lg:col-span-1">
                 <div className="bg-white p-6 rounded-lg shadow-lg h-fit">
@@ -118,7 +115,6 @@ export default function R3FViewerPage() {
                       ×
                     </button>
                   </div>
-                  
                   <EditControls
                     modelColor={editControls.modelColor}
                     setModelColor={editControls.setModelColor}
@@ -137,8 +133,6 @@ export default function R3FViewerPage() {
                 </div>
               </div>
             )}
-
-            {/* 3D Viewer */}
             <div className={editMode ? "lg:col-span-3" : "lg:col-span-4"}>
               <div className="bg-white p-0 rounded-none shadow-none overflow-hidden h-full">
                 <ClientOnly fallback={<div className="w-full h-full flex items-center justify-center text-gray-500">Loading 3D Viewer...</div>}>
