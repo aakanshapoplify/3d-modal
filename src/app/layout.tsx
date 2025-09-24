@@ -16,8 +16,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
           href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css"
         />
+        {/* Suppress hydration warnings for body attributes */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              // Suppress hydration warnings for body attributes added by extensions
+              if (typeof window !== 'undefined') {
+                const originalError = console.error;
+                console.error = (...args) => {
+                  if (args[0] && typeof args[0] === 'string' && args[0].includes('hydrated but some attributes')) {
+                    return; // Suppress hydration warnings
+                  }
+                  originalError.apply(console, args);
+                };
+              }
+            `,
+          }}
+        />
       </head>
-      <body className="bg-gray-50 text-gray-900">
+      <body className="bg-gray-50 text-gray-900" suppressHydrationWarning={true}>
         <Navbar />
         <main className="p-6">{children}</main>
 
