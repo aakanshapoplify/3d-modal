@@ -13,6 +13,7 @@ export default function UploadPage() {
   const [is2D, setIs2D] = useState(false);
   const [fileName, setFileName] = useState<string>("");
   const [fileType, setFileType] = useState<string>("");
+  const [showAlternativeFormats, setShowAlternativeFormats] = useState(false);
 
   console.log("Current URN:", urn);
 
@@ -73,7 +74,34 @@ export default function UploadPage() {
               setConversionProgress("Conversion completed successfully!");
               translated = true;
             } else if (data.status === "failed") {
-              throw new Error(data.message || "Translation failed");
+              const errorMessage = data.message || "Translation failed";
+              const suggestions = data.suggestions || [];
+              const details = data.details || "";
+              
+              // Check if this is a retryable error (error code -777)
+              const isRetryableError = details.includes("error code -777") || details.includes("Extractor error");
+              
+              if (isRetryableError && attempts < 3) {
+                // Retry with a delay for extractor errors
+                setConversionProgress(`Retrying conversion due to extractor error... (Retry ${attempts}/3)`);
+                await new Promise((resolve) => setTimeout(resolve, 10000)); // Wait 10 seconds before retry
+                continue; // Skip the normal wait and try again immediately
+              }
+              
+              let fullErrorMessage = errorMessage;
+              if (details) {
+                fullErrorMessage += `\n\nDetails: ${details}`;
+              }
+              if (suggestions.length > 0) {
+                fullErrorMessage += `\n\nSuggestions:\n${suggestions.map((s: string) => `• ${s}`).join('\n')}`;
+              }
+              
+              // Add specific guidance for error -777
+              if (details.includes("error code -777")) {
+                fullErrorMessage += `\n\n🔧 For Error Code -777:\n• Export your RVT file as DWG/DXF from Revit\n• Try a different RVT file version\n• Simplify the model in Revit before uploading`;
+              }
+              
+              throw new Error(fullErrorMessage);
             } else if (data.status === "pending") {
               setConversionProgress(`Conversion in progress... ${data.progress || ""}`);
             } else {
@@ -100,6 +128,11 @@ export default function UploadPage() {
       } catch (err: any) {
         console.error("Error during translation:", err);
         setConversionError(err.message || "Conversion failed");
+        
+        // Show alternative formats option for RVT errors
+        if (err.message.includes("error code -777") || fileType.toLowerCase().includes('rvt')) {
+          setShowAlternativeFormats(true);
+        }
       } finally {
         setLoading(false);
       }
@@ -129,6 +162,32 @@ export default function UploadPage() {
     setFileType("");
     setConversionError(null);
     setConversionProgress("");
+  };
+
+  const handleDownloadGLTF = async (format: 'gltf' | 'glb' = 'glb') => {
+    if (!urn) return;
+    try {
+      const res = await fetch(`/api/download-gltf/${encodeURIComponent(urn)}?format=${format}&deduplicate=true`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      localStorage.setItem('lastConvertedModelUrl', url);
+      // trigger download
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `model.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Navigate to R3F viewer to load it
+      window.location.href = '/r3f-viewer';
+    } catch (e: any) {
+      console.error('Download failed:', e);
+      alert(`Download failed: ${e?.message || e}`);
+    }
   };
 
   return (
@@ -168,8 +227,44 @@ export default function UploadPage() {
             <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
               <div className="text-red-500 text-4xl mb-4">⚠️</div>
               <h3 className="text-lg font-semibold text-red-800 mb-2">Conversion Failed</h3>
-              <p className="text-red-600 mb-4">{conversionError}</p>
-              <div className="space-x-4">
+              <p className="text-red-600 mb-4 whitespace-pre-line">{conversionError}</p>
+              
+              {showAlternativeFormats && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-left">
+                  <h4 className="text-sm font-medium text-blue-800 mb-3">
+                    💡 Alternative Solutions for RVT Files:
+                  </h4>
+                  <div className="text-sm text-blue-700 space-y-3">
+                    <div>
+                      <strong>1. Export as DWG/DXF:</strong>
+                      <ul className="ml-4 mt-1 space-y-1">
+                        <li>• Open your RVT file in Revit</li>
+                        <li>• Go to File → Export → CAD Formats</li>
+                        <li>• Export as DWG or DXF</li>
+                        <li>• Upload the exported file here</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>2. Try Different RVT Version:</strong>
+                      <ul className="ml-4 mt-1 space-y-1">
+                        <li>• Save your RVT file as a newer version</li>
+                        <li>• Use Revit 2022, 2023, or 2024</li>
+                        <li>• Re-upload the newer version</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>3. Simplify the Model:</strong>
+                      <ul className="ml-4 mt-1 space-y-1">
+                        <li>• Remove complex families or components</li>
+                        <li>• Purge unused families and materials</li>
+                        <li>• Delete unnecessary views</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="space-x-4 mt-4">
                 <button
                   onClick={handleRetry}
                   className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
@@ -177,7 +272,10 @@ export default function UploadPage() {
                   Try Again
                 </button>
                 <button
-                  onClick={() => setConversionError(null)}
+                  onClick={() => {
+                    setConversionError(null);
+                    setShowAlternativeFormats(false);
+                  }}
                   className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
                 >
                   Upload Different File
@@ -191,12 +289,26 @@ export default function UploadPage() {
           <div className="bg-white rounded-lg shadow-lg p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gray-800">Model Viewer</h2>
-              <button
-                onClick={handleRetry}
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors text-sm"
-              >
-                Upload New File
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDownloadGLTF('glb')}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                >
+                  Download as GLB
+                </button>
+                <button
+                  onClick={() => handleDownloadGLTF('gltf')}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors text-sm"
+                >
+                  Download as GLTF
+                </button>
+                <button
+                  onClick={handleRetry}
+                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors text-sm"
+                >
+                  Upload New File
+                </button>
+              </div>
             </div>
             {is2D && (
               <div className="mb-4 p-3 rounded bg-yellow-50 text-yellow-800 text-sm">

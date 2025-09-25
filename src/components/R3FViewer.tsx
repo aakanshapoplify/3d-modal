@@ -11,7 +11,12 @@ function FirstPersonWalk({ enabled, floorY }: { enabled: boolean; floorY: number
   const speedRef = useRef(0.06);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      // Clean up when exiting first-person mode
+      keys.current = {};
+      return;
+    }
+    
     const kd = (e: KeyboardEvent) => { keys.current[e.code] = true; };
     const ku = (e: KeyboardEvent) => { keys.current[e.code] = false; };
     window.addEventListener('keydown', kd);
@@ -41,7 +46,12 @@ function FirstPersonWalk({ enabled, floorY }: { enabled: boolean; floorY: number
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
+    return () => { 
+      cancelAnimationFrame(raf); 
+      window.removeEventListener('keydown', kd); 
+      window.removeEventListener('keyup', ku);
+      keys.current = {}; // Clear keys when component unmounts
+    };
   }, [enabled, camera, floorY]);
 
   return null;
@@ -361,6 +371,14 @@ function R3FViewerComponent({
 
   useEffect(() => { setMounted(true); }, []);
 
+  // Reset controls when exiting first-person mode
+  useEffect(() => {
+    if (!firstPerson && typeof window !== 'undefined') {
+      // Clear any disable flags when exiting first-person mode
+      (window as any).__disableOrbit = false;
+    }
+  }, [firstPerson]);
+
   useEffect(() => {
     if (!mounted) return;
     const load = async () => {
@@ -533,6 +551,7 @@ function R3FViewerComponent({
               minDistance={0.2}
               maxDistance={200}
               enabled={!(typeof window !== 'undefined' && (window as any).__disableOrbit)}
+              key={firstPerson ? 'disabled' : 'enabled'} // Force re-mount when switching modes
             />
           )}
           {firstPerson && (

@@ -79,11 +79,29 @@ export async function GET(req: Request) {
 
     // 7️⃣ Handle failed status
     if (data.status === "failed") {
+      const messages = (data?.derivatives?.[0]?.messages || []).map((m: any) => m?.message || m).join("; ");
       const failureReason = data.progress || data.reason || "Unknown failure reason";
+      
+      // Log detailed error information for debugging
+      console.log("Translation failed details:", {
+        status: data.status,
+        progress: data.progress,
+        messages: data?.derivatives?.[0]?.messages,
+        failureReason,
+        fullManifest: data // Log the entire manifest for debugging
+      });
+      
       return NextResponse.json({
         status: "failed",
         message: `Model translation failed: ${failureReason}`,
-        reason: failureReason
+        reason: failureReason,
+        details: messages || undefined,
+        suggestions: [
+          "Try uploading a different RVT file",
+          "Check if the RVT file is corrupted",
+          "Ensure the RVT file is not too large or complex",
+          "Try converting to a simpler format first"
+        ]
       });
     }
 

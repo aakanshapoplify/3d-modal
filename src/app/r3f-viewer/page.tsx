@@ -12,6 +12,14 @@ export default function R3FViewerPage() {
   const [editMode, setEditMode] = useState(false);
   const [editControls, setEditControls] = useState<any>(null);
 
+  useEffect(() => {
+    const last = localStorage.getItem('lastConvertedModelUrl');
+    if (last) {
+      setGlbUrl(last);
+      setUseDefaultModel(false);
+    }
+  }, []);
+
   const onUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
