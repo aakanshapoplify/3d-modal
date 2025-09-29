@@ -10,6 +10,7 @@ export default function Navbar() {
         <Link href="/r3f-viewer" className="text-gray-600 hover:text-blue-600 transition-colors">3D Viewer</Link>
         <Link href="/editor" className="text-gray-600 hover:text-blue-600 transition-colors">Floor Editor</Link>
         <Link href="/obj-to-glb" className="text-gray-600 hover:text-blue-600 transition-colors">OBJ Converter</Link>
+        <Link href="/panoramic-view" className="text-gray-600 hover:text-blue-600 transition-colors">Panoramic View</Link>
       </div>
     </nav>
   );

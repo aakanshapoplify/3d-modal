@@ -397,11 +397,21 @@ function R3FViewerComponent({
   useEffect(() => {
     if (!mounted) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedFurniture) setSelectedFurniture(null);
-      if (e.key === 'Escape' && editMode) {
-        setEditMode(false);
-        setSelectedFurniture(null);
-        setSelectedFurnitureModel(null);
+      const target = e.target as HTMLElement | null;
+      const tag = (target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || target?.isContentEditable) {
+        return; // Don't handle shortcuts while typing or interacting with inputs (e.g., color picker)
+      }
+
+      if (e.key === 'Escape') {
+        if (selectedFurniture) setSelectedFurniture(null);
+        // Do not exit edit mode on Escape to avoid disrupting workflows (e.g., closing color pickers)
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedFurniture) {
+        if (typeof window !== 'undefined' && (window as any).removeFurniture) {
+          (window as any).removeFurniture(selectedFurniture);
+          setSelectedFurniture(null);
+        }
       }
       if (firstPerson) {
         if (e.code === 'PageUp') setWalkFloorIdx((i) => Math.min(i + 1, floors.length - 1));
@@ -411,7 +421,7 @@ function R3FViewerComponent({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [mounted, selectedFurniture, editMode, setEditMode, firstPerson]);
+  }, [mounted, selectedFurniture, firstPerson]);
 
   const handleFurnitureUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -509,7 +519,7 @@ function R3FViewerComponent({
           camera={{ position: [6, 4, 6], fov: 60 }}
           style={{ cursor: editMode && selectedFurnitureModel ? 'crosshair' : 'default' }}
           shadows
-          onPointerMissed={(e) => { if (e.type === 'pointerdown' && editMode) setSelectedFurniture(null); }}
+          onPointerMissed={(e) => { /* Do not clear selection on background clicks to avoid accidental unselects */ }}
           onPointerDown={() => setShowHints(false)}
         >
           <FrameCapture />

@@ -1,6 +1,7 @@
 import Script from "next/script";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import ScriptLoader from "@/components/ScriptLoader";
 
 export const metadata = {
   title: "CAD → 3D Walkthrough",
@@ -15,6 +16,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link
           rel="stylesheet"
           href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css"
+        />
+        {/* PhotoSphereViewer Styles */}
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@5.0.0/dist/photo-sphere-viewer.css"
         />
         {/* Suppress hydration warnings for body attributes */}
         <script
@@ -43,6 +49,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"
           strategy="beforeInteractive"
         />
+        
+        {/* Client-side script loader for PhotoSphereViewer */}
+        <ScriptLoader />
       </body>
     </html>
   );
