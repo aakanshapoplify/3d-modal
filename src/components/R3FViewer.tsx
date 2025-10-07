@@ -52,6 +52,7 @@ import {
   PointerLockControls,
   ContactShadows,
   Sky,
+  Cloud,
   Stars,
   PerspectiveCamera,
   Lightformer,
@@ -289,11 +290,15 @@ function Model({
   selectedFurniture,
   onFurnitureClick,
   transformMode,
+  wallColor,
+  floorColor,
 }: {
   url: string;
   selectedFurniture: string | null;
   onFurnitureClick: (id: string) => void;
   transformMode: "none" | "translate" | "rotate" | "scale";
+  wallColor: string;
+  floorColor: string;
 }) {
   const group = useRef<any>(null);
   const camera = useThree((s) => s.camera);
@@ -314,8 +319,13 @@ function Model({
           : [obj.material];
         mats.forEach((m: any) => {
           if (!m.isMeshStandardMaterial) {
+            // Determine if this is a floor or wall based on mesh name and geometry
+            const name = obj.name.toLowerCase();
+            const isFloor = name.includes('floor') || name.includes('ground') || name.includes('base');
+            const colorToUse = isFloor ? floorColor : wallColor;
+            
             const newMaterial = new (require("three").MeshStandardMaterial)({
-              color: m.color || new Color(modelColor),
+              color: m.color || new Color(colorToUse),
               metalness: 0.1,
               roughness: 0.8,
               transparent: true,
@@ -325,7 +335,12 @@ function Model({
             });
             obj.material = newMaterial;
           } else {
-            if (m?.color) m.color = new Color(modelColor);
+            // Apply color based on mesh type
+            const name = obj.name.toLowerCase();
+            const isFloor = name.includes('floor') || name.includes('ground') || name.includes('base');
+            const colorToUse = isFloor ? floorColor : wallColor;
+            
+            if (m?.color) m.color = new Color(colorToUse);
             m.metalness = 0.1;
             m.roughness = 0.8;
             m.transparent = true;
@@ -336,7 +351,7 @@ function Model({
         });
       }
     });
-  }, [gltf, modelColor]);
+  }, [gltf, modelColor, wallColor, floorColor]);
 
   useEffect(() => {
     if (!gltf?.scene || !camera) return;
@@ -632,6 +647,8 @@ function R3FViewerComponent({
   const [selectedFurnitureModel, setSelectedFurnitureModel] =
     useState<FurnitureModel | null>(null);
   const [modelColor, setModelColor] = useState("#b0bec5");
+  const [wallColor, setWallColor] = useState("#FFFFFF");
+  const [floorColor, setFloorColor] = useState("#90A955");
   const [furnitureColor, setFurnitureColor] = useState("#8B4513");
   const [mounted, setMounted] = useState(false);
   const [furnitureModels, setFurnitureModels] = useState<FurnitureModel[]>([]);
@@ -1259,6 +1276,8 @@ function R3FViewerComponent({
               selectedFurniture={selectedFurniture}
               onFurnitureClick={setSelectedFurniture}
               transformMode={transformMode}
+              wallColor={wallColor}
+              floorColor={floorColor}
             />
             {/* Auto tour camera animation driver */}
             {isTourPlaying && tourPath.length > 1 && (
@@ -1345,7 +1364,7 @@ function R3FViewerComponent({
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
               <planeGeometry args={[100, 100]} />
               <meshStandardMaterial 
-                color="#90A955"
+                color={floorColor}
                 roughness={0.8}
                 metalness={0.2}
               />
@@ -1369,153 +1388,59 @@ function R3FViewerComponent({
               color="#000000"
             />
             
-            {/* Realistic Sky with Sun */}
+            {/* Realistic Sky with Visible Sun */}
             <Sky
               distance={450000}
               sunPosition={[100, 20, 100]}
-              inclination={0.6}
+              inclination={0.49}
               azimuth={0.25}
-              turbidity={8}
-              rayleigh={2}
+              turbidity={3}
+              rayleigh={1}
               mieCoefficient={0.005}
-              mieDirectionalG={0.8}
+              mieDirectionalG={0.7}
             />
             
-            {/* Visible Sun */}
-            <mesh position={[100, 20, 100]}>
-              <sphereGeometry args={[2, 32, 32]} />
-              <meshBasicMaterial color="#FDB813" />
-            </mesh>
-            
-            {/* Clouds */}
-            <group position={[0, 15, 0]}>
-              {/* Cloud 1 */}
-              <mesh position={[-20, 5, -30]}>
-                <sphereGeometry args={[3, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.8}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[-18, 5, -30]}>
-                <sphereGeometry args={[2.5, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.8}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[-22, 4.5, -30]}>
-                <sphereGeometry args={[2, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.8}
-                  roughness={1}
-                />
-              </mesh>
-              
-              {/* Cloud 2 */}
-              <mesh position={[25, 3, -40]}>
-                <sphereGeometry args={[3.5, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.75}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[28, 3, -40]}>
-                <sphereGeometry args={[3, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.75}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[23, 2.5, -40]}>
-                <sphereGeometry args={[2.5, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.75}
-                  roughness={1}
-                />
-              </mesh>
-              
-              {/* Cloud 3 */}
-              <mesh position={[10, 8, 35]}>
-                <sphereGeometry args={[2.8, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.7}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[12, 8, 35]}>
-                <sphereGeometry args={[2.3, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.7}
-                  roughness={1}
-                />
-              </mesh>
-              
-              {/* Cloud 4 */}
-              <mesh position={[-30, 6, 20]}>
-                <sphereGeometry args={[3.2, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.8}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[-27, 6, 20]}>
-                <sphereGeometry args={[2.8, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.8}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[-32, 5.5, 20]}>
-                <sphereGeometry args={[2.2, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.8}
-                  roughness={1}
-                />
-              </mesh>
-              
-              {/* Cloud 5 - Far background */}
-              <mesh position={[0, 4, -50]}>
-                <sphereGeometry args={[4, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.6}
-                  roughness={1}
-                />
-              </mesh>
-              <mesh position={[4, 4, -50]}>
-                <sphereGeometry args={[3.5, 16, 16]} />
-                <meshStandardMaterial 
-                  color="#ffffff" 
-                  transparent 
-                  opacity={0.6}
-                  roughness={1}
-                />
-              </mesh>
-            </group>
+            {/* Clouds using Cloud component from drei */}
+            <Cloud
+              opacity={0.5}
+              speed={0.4}
+              width={10}
+              depth={1.5}
+              segments={20}
+              position={[-20, 15, -30]}
+            />
+            <Cloud
+              opacity={0.4}
+              speed={0.3}
+              width={8}
+              depth={1.2}
+              segments={18}
+              position={[25, 12, -35]}
+            />
+            <Cloud
+              opacity={0.45}
+              speed={0.35}
+              width={12}
+              depth={1.8}
+              segments={22}
+              position={[10, 18, 25]}
+            />
+            <Cloud
+              opacity={0.5}
+              speed={0.4}
+              width={9}
+              depth={1.4}
+              segments={20}
+              position={[-30, 14, 15]}
+            />
+            <Cloud
+              opacity={0.35}
+              speed={0.25}
+              width={15}
+              depth={2}
+              segments={25}
+              position={[0, 20, -45]}
+            />
           </Suspense>
           
           {/* Post-processing Effects - Optimized for clarity */}
@@ -1896,6 +1821,70 @@ function R3FViewerComponent({
                 <kbd className="px-1.5 py-0.5 bg-white rounded text-[9px] font-mono border border-gray-300 shadow-sm">ESC</kbd>
                 <span className="flex-1">Cancel selection</span>
               </div>
+              </div>
+            </div>
+
+            {/* Color Customization Section */}
+            <div className="space-y-3 pt-3 border-t border-gray-200">
+              <h4 className="text-[10px] uppercase tracking-wider font-bold text-gray-500 flex items-center gap-2">
+                <div className="w-1 h-4 bg-gradient-to-b from-pink-500 to-rose-500 rounded-full"></div>
+                Color Customization
+              </h4>
+              
+              {/* Wall Color */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-medium text-gray-600 flex items-center justify-between">
+                  Wall Color
+                  <div 
+                    className="w-6 h-6 rounded border border-gray-300 cursor-pointer shadow-sm"
+                    style={{ backgroundColor: wallColor }}
+                  />
+                </label>
+                <input
+                  type="color"
+                  value={wallColor}
+                  onChange={(e) => setWallColor(e.target.value)}
+                  className="w-full h-8 rounded cursor-pointer border border-gray-300"
+                />
+                <div className="grid grid-cols-5 gap-1">
+                  {["#FFFFFF", "#F5F5F5", "#E0E0E0", "#E3F2FD", "#E8F5E8", "#FCE4EC", "#FFFDE7", "#FFF8DC", "#F5F5DC", "#F3E5F5"].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setWallColor(color)}
+                      className="w-full h-6 rounded border border-gray-300 hover:scale-110 transition-transform"
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Floor Color */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-medium text-gray-600 flex items-center justify-between">
+                  Floor Color
+                  <div 
+                    className="w-6 h-6 rounded border border-gray-300 cursor-pointer shadow-sm"
+                    style={{ backgroundColor: floorColor }}
+                  />
+                </label>
+                <input
+                  type="color"
+                  value={floorColor}
+                  onChange={(e) => setFloorColor(e.target.value)}
+                  className="w-full h-8 rounded cursor-pointer border border-gray-300"
+                />
+                <div className="grid grid-cols-5 gap-1">
+                  {["#90A955", "#8B4513", "#654321", "#D2B48C", "#C19A6B", "#DEB887", "#F5DEB3", "#E6D7B8", "#A0826D", "#8B7355"].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setFloorColor(color)}
+                      className="w-full h-6 rounded border border-gray-300 hover:scale-110 transition-transform"
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
             </div>
