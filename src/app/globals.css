@@ -39,3 +39,8 @@ body {
 body.modal-open {
   overflow: hidden !important;
 }
+
+/* Custom vertical padding utility */
+.py-12 {
+  padding-block: calc(var(--spacing) * 4);
+}

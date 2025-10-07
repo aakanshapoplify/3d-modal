@@ -50,9 +50,21 @@ import {
   useGLTF,
   TransformControls,
   PointerLockControls,
+  ContactShadows,
+  Sky,
+  Stars,
+  PerspectiveCamera,
+  Lightformer,
+  AccumulativeShadows,
+  RandomizedLight,
+  BakeShadows,
 } from "@react-three/drei";
 import { DoubleSide, Color, Vector3, Group, MOUSE } from "three";
+import { EffectComposer, Bloom, DepthOfField, Vignette, SSAO, ToneMapping } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import dynamic from "next/dynamic";
+
+const FLOORS = [0, 3, 6, 9, 12];
 
 function FirstPersonWalk({
   enabled,
@@ -201,10 +213,7 @@ function Furniture({
   useEffect(() => {
     if (groupRef.current && onReady) onReady(groupRef.current);
   }, [groupRef.current, onReady]);
-  useEffect(() => {
-    if (groupRef.current && onReady) onReady(groupRef.current);
-  }, [isSelected, onReady]);
-
+  
   return (
     <group
       ref={groupRef}
@@ -247,7 +256,7 @@ function GroundPlanes({
   isActive: boolean;
   onUnselect: () => void;
 }) {
-  const floors = [0, 3, 6, 9, 12];
+  const floors = FLOORS;
   return (
     <>
       {floors.map((h) => (
@@ -354,9 +363,9 @@ function Model({
     const aspect = Math.max(0.1, viewport.width / Math.max(1, viewport.height));
     const fitHeightDistance = halfY / Math.tan(fov / 2);
     const fitWidthDistance = halfX / (Math.tan(fov / 2) * aspect);
-    let distance = Math.max(fitHeightDistance, fitWidthDistance) * 1.3;
+    let distance = Math.max(fitHeightDistance, fitWidthDistance) * 2.5;
 
-    const eyeY = box.min.y + Math.min(1.7, Math.max(1.4, size.y * 0.35));
+    const eyeY = box.min.y + Math.min(1.7, Math.max(1.4, size.y * 0.4));
     const dir = new THREE.Vector3(1, 0, 1).normalize();
     const newPos = new THREE.Vector3(center.x, eyeY, center.z).add(
       dir.multiplyScalar(distance)
@@ -476,13 +485,12 @@ function Model({
               const grid = 0.25;
               obj.position.x = Math.round(obj.position.x / grid) * grid;
               obj.position.z = Math.round(obj.position.z / grid) * grid;
-              const floors = [0, 3, 6, 9, 12];
-              const nearestFloor = floors.reduce(
+              const nearestFloor = FLOORS.reduce(
                 (p, c) =>
                   Math.abs(c - obj.position.y) < Math.abs(p - obj.position.y)
                     ? c
                     : p,
-                floors[0]
+                FLOORS[0]
               );
               obj.position.y = nearestFloor;
             }}
@@ -808,8 +816,8 @@ function R3FViewerComponent({
       const [cx, cy, cz] = b.center;
       const [sx, sy, sz] = b.size;
       if (mode === "orbit") {
-        const radius = Math.max(sx, sz) * 1.4 + 0.5;
-        const eyeY = b.center[1] + Math.min(2.5, sy * 0.5);
+        const radius = Math.max(sx, sz) * 2.0 + 1.0;
+        const eyeY = b.center[1] + Math.min(3.0, sy * 0.6);
         const angles = [45, 135, 225, 315];
         const base: TourWaypoint[] = angles.map((deg) => {
           const rad = (deg * Math.PI) / 180;
@@ -832,9 +840,8 @@ function R3FViewerComponent({
         return base;
       }
       // Interior path: rectangle around inside perimeter on chosen floor.
-      const floorHeights = [0, 3, 6, 9, 12];
       const baseFloorY =
-        floorHeights[Math.max(0, Math.min(floorIdx, floorHeights.length - 1))];
+        FLOORS[Math.max(0, Math.min(floorIdx, FLOORS.length - 1))];
       const eyeY = baseFloorY + 1.6; // eye level
       // Create an inset rectangle (avoid walls) with margin.
       const margin = Math.min(sx, sz) * 0.15;
@@ -936,7 +943,7 @@ function R3FViewerComponent({
     }
   }, [isTourPlaying, tourMode, interiorFloorIdx, generateTourPath]);
 
-  const floors = [0, 3, 6, 9, 12];
+  const floors = FLOORS;
   const currentFloorY =
     Math.max(
       0,
@@ -1078,7 +1085,7 @@ function R3FViewerComponent({
   const handlePlaceAtPoint = (point: { x: number; y: number; z: number }) => {
     if (!editMode || !selectedFurnitureModel || !mounted) return;
     const grid = 0.25;
-    const floorsLocal = [0, 3, 6, 9, 12];
+    const floorsLocal = FLOORS;
     const nearestFloor = floorsLocal.reduce(
       (prev, cur) =>
         Math.abs(cur - point.y) < Math.abs(prev - point.y) ? cur : prev,
@@ -1159,8 +1166,29 @@ function R3FViewerComponent({
   ]);
 
   return (
-    <div className="w-full h-[70vh] rounded-lg overflow-hidden border relative bg-white">
-      <div className="w-full h-full relative">
+    <div className="w-full h-full relative group">
+      {/* Decorative Frame Elements */}
+      <div className="absolute inset-0 pointer-events-none z-30">
+        {/* Corner Accents */}
+        <div className="absolute top-0 left-0 w-20 h-20 border-t-2 border-l-2 border-blue-500/30"></div>
+        <div className="absolute top-0 right-0 w-20 h-20 border-t-2 border-r-2 border-purple-500/30"></div>
+        <div className="absolute bottom-0 left-0 w-20 h-20 border-b-2 border-l-2 border-purple-500/30"></div>
+        <div className="absolute bottom-0 right-0 w-20 h-20 border-b-2 border-r-2 border-blue-500/30"></div>
+        
+        {/* Subtle Grid Overlay */}
+        <div className="absolute inset-0 opacity-[0.02]" style={{
+          backgroundImage: `
+            linear-gradient(rgba(99, 102, 241, 0.1) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(99, 102, 241, 0.1) 1px, transparent 1px)
+          `,
+          backgroundSize: '50px 50px'
+        }}></div>
+      </div>
+
+      {/* Main Viewer Container */}
+      <div className="w-full h-full relative rounded-2xl overflow-hidden shadow-2xl border border-gray-200/50 bg-gradient-to-br from-slate-50 via-white to-gray-50">
+        {/* Ambient Glow Effect */}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-purple-500/5 pointer-events-none"></div>
         <Canvas
           camera={{ position: [6, 4, 6], fov: 60 }}
           style={{
@@ -1168,27 +1196,63 @@ function R3FViewerComponent({
               editMode && selectedFurnitureModel ? "crosshair" : "default",
           }}
           shadows
+          gl={{ 
+            antialias: true, 
+            alpha: true,
+            powerPreference: "high-performance",
+            preserveDrawingBuffer: true,
+          }}
+          dpr={[1, 2]}
           onPointerMissed={(e) => {
             if (e.type === "pointerdown" && editMode)
               setSelectedFurniture(null);
           }}
           onPointerDown={() => setShowHints(false)}
         >
+          {/* Enhanced Lighting Setup */}
+          <color attach="background" args={["#87CEEB"]} />
           <FrameCapture />
-          <ambientLight intensity={0.4} />
+          
+          {/* Advanced Lighting */}
+          <ambientLight intensity={0.5} />
+          
+          {/* Key Light - Main directional light */}
           <directionalLight
             position={[10, 20, 10]}
-            intensity={1.2}
+            intensity={1.5}
             castShadow
-            shadow-mapSize={[2048, 2048]}
+            shadow-mapSize={[4096, 4096]}
             shadow-camera-far={50}
             shadow-camera-left={-20}
             shadow-camera-right={20}
             shadow-camera-top={20}
             shadow-camera-bottom={-20}
+            shadow-bias={-0.0001}
           />
-          <pointLight position={[-10, 10, -10]} intensity={0.5} />
-          <hemisphereLight args={["#87CEEB", "#8B4513", 0.3]} />
+          
+          {/* Fill Light - Softer secondary light */}
+          <directionalLight
+            position={[-5, 10, -5]}
+            intensity={0.4}
+            color="#b8d4ff"
+          />
+          
+          {/* Rim Light - Adds depth */}
+          <spotLight
+            position={[0, 15, -10]}
+            angle={0.3}
+            penumbra={1}
+            intensity={0.5}
+            castShadow
+            color="#ffd4a3"
+          />
+          
+          {/* Accent Lights */}
+          <pointLight position={[-10, 5, -10]} intensity={0.3} color="#ff9a76" distance={20} />
+          <pointLight position={[10, 5, 10]} intensity={0.3} color="#76b6ff" distance={20} />
+          
+          {/* Hemisphere for natural ambient */}
+          <hemisphereLight args={["#ffffff", "#8B7355", 0.4]} />
           <Suspense fallback={<Html center>Loading model...</Html>}>
             <Model
               url={url}
@@ -1215,7 +1279,7 @@ function R3FViewerComponent({
                       startTour(0);
                       return;
                     } else if (fullTourStage === "interior") {
-                      const floorsArr = [0, 3, 6, 9, 12];
+                      const floorsArr = FLOORS;
                       if (interiorFloorIdx < floorsArr.length - 1) {
                         const next = interiorFloorIdx + 1;
                         setInteriorFloorIdx(next);
@@ -1236,7 +1300,7 @@ function R3FViewerComponent({
                   } else {
                     // Interior single-floor:
                     if (interiorCycleFloors) {
-                      const floorsArr = [0, 3, 6, 9, 12];
+                      const floorsArr = FLOORS;
                       const next = (interiorFloorIdx + 1) % floorsArr.length;
                       setInteriorFloorIdx(next);
                       startTour(next);
@@ -1259,7 +1323,7 @@ function R3FViewerComponent({
             )}
             {editMode && (
               <>
-                {[0, 3, 6, 9, 12].map((h) => (
+                {FLOORS.map((h) => (
                   <mesh
                     key={`floor-${h}`}
                     position={[0, h, 0]}
@@ -1277,8 +1341,202 @@ function R3FViewerComponent({
                 ))}
               </>
             )}
-            <Environment preset="city" />
+            {/* Ground Plane */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
+              <planeGeometry args={[100, 100]} />
+              <meshStandardMaterial 
+                color="#90A955"
+                roughness={0.8}
+                metalness={0.2}
+              />
+            </mesh>
+            
+            {/* Enhanced Environment & Shadows */}
+            <Environment 
+              preset="sunset"
+              background={false}
+              blur={0}
+            />
+            
+            {/* Ground Shadows for realism */}
+            <ContactShadows
+              position={[0, 0, 0]}
+              opacity={0.5}
+              scale={50}
+              blur={2.5}
+              far={10}
+              resolution={512}
+              color="#000000"
+            />
+            
+            {/* Realistic Sky with Sun */}
+            <Sky
+              distance={450000}
+              sunPosition={[100, 20, 100]}
+              inclination={0.6}
+              azimuth={0.25}
+              turbidity={8}
+              rayleigh={2}
+              mieCoefficient={0.005}
+              mieDirectionalG={0.8}
+            />
+            
+            {/* Visible Sun */}
+            <mesh position={[100, 20, 100]}>
+              <sphereGeometry args={[2, 32, 32]} />
+              <meshBasicMaterial color="#FDB813" />
+            </mesh>
+            
+            {/* Clouds */}
+            <group position={[0, 15, 0]}>
+              {/* Cloud 1 */}
+              <mesh position={[-20, 5, -30]}>
+                <sphereGeometry args={[3, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.8}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[-18, 5, -30]}>
+                <sphereGeometry args={[2.5, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.8}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[-22, 4.5, -30]}>
+                <sphereGeometry args={[2, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.8}
+                  roughness={1}
+                />
+              </mesh>
+              
+              {/* Cloud 2 */}
+              <mesh position={[25, 3, -40]}>
+                <sphereGeometry args={[3.5, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.75}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[28, 3, -40]}>
+                <sphereGeometry args={[3, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.75}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[23, 2.5, -40]}>
+                <sphereGeometry args={[2.5, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.75}
+                  roughness={1}
+                />
+              </mesh>
+              
+              {/* Cloud 3 */}
+              <mesh position={[10, 8, 35]}>
+                <sphereGeometry args={[2.8, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.7}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[12, 8, 35]}>
+                <sphereGeometry args={[2.3, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.7}
+                  roughness={1}
+                />
+              </mesh>
+              
+              {/* Cloud 4 */}
+              <mesh position={[-30, 6, 20]}>
+                <sphereGeometry args={[3.2, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.8}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[-27, 6, 20]}>
+                <sphereGeometry args={[2.8, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.8}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[-32, 5.5, 20]}>
+                <sphereGeometry args={[2.2, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.8}
+                  roughness={1}
+                />
+              </mesh>
+              
+              {/* Cloud 5 - Far background */}
+              <mesh position={[0, 4, -50]}>
+                <sphereGeometry args={[4, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.6}
+                  roughness={1}
+                />
+              </mesh>
+              <mesh position={[4, 4, -50]}>
+                <sphereGeometry args={[3.5, 16, 16]} />
+                <meshStandardMaterial 
+                  color="#ffffff" 
+                  transparent 
+                  opacity={0.6}
+                  roughness={1}
+                />
+              </mesh>
+            </group>
           </Suspense>
+          
+          {/* Post-processing Effects - Optimized for clarity */}
+          <EffectComposer multisampling={4}>
+            <Bloom
+              intensity={0.15}
+              luminanceThreshold={0.95}
+              luminanceSmoothing={0.7}
+            />
+            <SSAO
+              intensity={15}
+              radius={3}
+              luminanceInfluence={0.3}
+              color="black"
+            />
+            <Vignette
+              offset={0.5}
+              darkness={0.3}
+              eskil={false}
+            />
+          </EffectComposer>
           {!firstPerson && (
             <OrbitControls
               enableDamping
@@ -1329,31 +1587,72 @@ function R3FViewerComponent({
           />
           <CameraRefCatcher />
         </Canvas>
+        {/* Status Bar */}
+        <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-black/20 to-transparent pointer-events-none z-20 flex items-center justify-between px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-lg shadow-green-400/50"></div>
+              <span className="text-white text-xs font-medium drop-shadow-lg">Live View</span>
+            </div>
+            {isTourPlaying && (
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/80 backdrop-blur-sm">
+                <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></div>
+                <span className="text-white text-xs font-medium">Tour Active</span>
+              </div>
+            )}
+            {firstPerson && (
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/80 backdrop-blur-sm">
+                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span className="text-white text-xs font-medium">First Person</span>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Remote Control Panel Toggle Button */}
         <button
           onClick={() => setControlPanelOpen((o) => !o)}
           aria-label={controlPanelOpen ? "Hide controls" : "Show controls"}
-          className="absolute top-3 right-3 z-20 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white shadow-lg hover:shadow-xl transition-all w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-400"
+          className="absolute top-4 right-4 z-20 rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 text-white shadow-xl hover:shadow-2xl transition-all duration-300 w-12 h-12 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-400 hover:scale-110 group/btn"
         >
-          {controlPanelOpen ? "×" : "≡"}
+          <div className="absolute inset-0 rounded-xl bg-white/20 opacity-0 group-hover/btn:opacity-100 transition-opacity"></div>
+          <span className="relative text-lg font-light">{controlPanelOpen ? "×" : "≡"}</span>
         </button>
-        {/* Control Panel */}
+        {/* Enhanced Control Panel */}
         {controlPanelOpen && (
           <div
-            className="absolute top-16 right-3 z-10 w-72 max-h-[calc(100%-5rem)] overflow-y-auto rounded-xl backdrop-blur-md bg-white/85 border border-white/40 shadow-2xl p-4 flex flex-col gap-4 text-xs text-gray-800"
+            className="absolute top-20 right-4 z-10 w-80 max-h-[calc(100%-6rem)] overflow-hidden rounded-2xl backdrop-blur-xl bg-white/90 border border-white/60 shadow-2xl flex flex-col text-xs text-gray-800 animate-in slide-in-from-right duration-300"
             role="region"
             aria-label="3D Viewer Controls"
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-[11px] uppercase tracking-wider font-semibold text-gray-600">
-                Camera / Tour
-              </h3>
-              {isTourPlaying && (
-                <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium animate-pulse">
-                  Running
-                </span>
-              )}
+            {/* Panel Header with Gradient */}
+            <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-white tracking-wide flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                  </svg>
+                  Camera Controls
+                </h3>
+                {isTourPlaying && (
+                  <span className="px-2 py-1 rounded-full bg-white/20 text-white text-[10px] font-medium animate-pulse backdrop-blur-sm">
+                    ● Recording
+                  </span>
+                )}
+              </div>
+              <p className="text-white/80 text-[10px] font-light">Navigate and explore your 3D space</p>
             </div>
+
+            {/* Scrollable Content */}
+            <div className="overflow-y-auto p-4 flex flex-col gap-4 max-h-[calc(100vh-20rem)]">
+            {/* View Modes Section */}
+            <div className="space-y-3">
+              <h4 className="text-[10px] uppercase tracking-wider font-bold text-gray-500 flex items-center gap-2">
+                <div className="w-1 h-4 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full"></div>
+                View Modes
+              </h4>
             <div className="grid grid-cols-2 gap-2">
               <button
                 id="enter-fp"
@@ -1431,8 +1730,16 @@ function R3FViewerComponent({
               >
                 {fullBuildingTour ? "Full Tour Running" : "Full Building Tour"}
               </button>
+              </div>
             </div>
-            <div className="flex flex-col gap-2">
+
+            {/* Tour Controls Section */}
+            <div className="space-y-3 pt-3 border-t border-gray-200">
+              <h4 className="text-[10px] uppercase tracking-wider font-bold text-gray-500 flex items-center gap-2">
+                <div className="w-1 h-4 bg-gradient-to-b from-purple-500 to-pink-500 rounded-full"></div>
+                Automated Tours
+              </h4>
+              <div className="flex flex-col gap-2">
               <label className="text-[11px] font-medium text-gray-600 flex items-center justify-between">
                 Mode
                 <select
@@ -1497,7 +1804,15 @@ function R3FViewerComponent({
                 </label>
               )}
             </div>
-            <div className="flex flex-col gap-1">
+            </div>
+
+            {/* Speed Control Section */}
+            <div className="space-y-2 pt-3 border-t border-gray-200">
+              <h4 className="text-[10px] uppercase tracking-wider font-bold text-gray-500 flex items-center gap-2">
+                <div className="w-1 h-4 bg-gradient-to-b from-pink-500 to-rose-500 rounded-full"></div>
+                Playback Speed
+              </h4>
+              <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-gray-600 flex items-center justify-between">
                 Speed{" "}
                 <span className="text-gray-500 font-normal">
@@ -1515,8 +1830,16 @@ function R3FViewerComponent({
                 className="w-full accent-purple-600"
               />
             </div>
+            </div>
+
+            {/* Floor Navigation Section */}
             {firstPerson && !isTourPlaying && (
-              <div className="flex flex-col gap-2">
+              <div className="space-y-2 pt-3 border-t border-gray-200">
+                <h4 className="text-[10px] uppercase tracking-wider font-bold text-gray-500 flex items-center gap-2">
+                  <div className="w-1 h-4 bg-gradient-to-b from-green-500 to-emerald-500 rounded-full"></div>
+                  Floor Navigation
+                </h4>
+                <div className="flex flex-col gap-2">
                 <h4 className="text-[11px] uppercase tracking-wide text-gray-600 font-semibold">
                   Walk Floors
                 </h4>
@@ -1543,34 +1866,108 @@ function R3FViewerComponent({
                   </button>
                 </div>
               </div>
+              </div>
             )}
-            <div className="mt-1 pt-2 border-t border-gray-200 flex flex-col gap-1 text-[10px] text-gray-500 leading-snug">
-              <p>
-                <strong>Hints:</strong> Drag = orbit • Scroll = zoom • WASD =
-                walk (360)
-              </p>
-              <p>
-                PageUp/PageDown switch walking floor • Esc cancels selection
-              </p>
+
+            {/* Keyboard Shortcuts Section */}
+            <div className="space-y-2 pt-3 border-t border-gray-200">
+              <h4 className="text-[10px] uppercase tracking-wider font-bold text-gray-500 flex items-center gap-2">
+                <div className="w-1 h-4 bg-gradient-to-b from-gray-500 to-slate-500 rounded-full"></div>
+                Keyboard Shortcuts
+              </h4>
+              <div className="flex flex-col gap-1 text-[10px] text-gray-600 leading-relaxed bg-gray-50 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <kbd className="px-1.5 py-0.5 bg-white rounded text-[9px] font-mono border border-gray-300 shadow-sm">WASD</kbd>
+                <span className="flex-1">Move in first-person mode</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <kbd className="px-1.5 py-0.5 bg-white rounded text-[9px] font-mono border border-gray-300 shadow-sm">Drag</kbd>
+                <span className="flex-1">Rotate camera view</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <kbd className="px-1.5 py-0.5 bg-white rounded text-[9px] font-mono border border-gray-300 shadow-sm">Scroll</kbd>
+                <span className="flex-1">Zoom in/out</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <kbd className="px-1.5 py-0.5 bg-white rounded text-[9px] font-mono border border-gray-300 shadow-sm">PgUp/PgDn</kbd>
+                <span className="flex-1">Change floor level</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <kbd className="px-1.5 py-0.5 bg-white rounded text-[9px] font-mono border border-gray-300 shadow-sm">ESC</kbd>
+                <span className="flex-1">Cancel selection</span>
+              </div>
+              </div>
+            </div>
             </div>
           </div>
         )}
+
+        {/* Enhanced Floating Hints */}
         {showHints && (
-          <div className="absolute left-3 bottom-16 text-[11px] text-gray-700 bg-white/90 px-3 py-2 rounded shadow border">
-            {/* Quick usage hints (hidden after first pointer interaction). */}
-            Drag to look • Scroll to zoom • 360 Walk: WASD
-            <br />
-            Use Floor+/Floor- or PageUp/PageDown • 0 = Ground
+          <div className="absolute left-6 bottom-6 z-10 max-w-xs animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="bg-gradient-to-br from-gray-900/95 to-gray-800/95 backdrop-blur-xl text-white px-5 py-4 rounded-2xl shadow-2xl border border-white/10">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h5 className="font-semibold text-sm mb-2">Quick Start</h5>
+                  <div className="text-xs text-gray-300 space-y-1">
+                    <p>• <strong>Drag</strong> to rotate • <strong>Scroll</strong> to zoom</p>
+                    <p>• <strong>WASD</strong> for 360° walk mode</p>
+                    <p>• <strong>PageUp/Down</strong> to change floors</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowHints(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         )}
+
+        {/* Bottom Info Bar */}
+        <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-black/20 to-transparent pointer-events-none z-20 flex items-end justify-center pb-2">
+          <div className="flex items-center gap-4 text-white/60 text-[10px] font-medium">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1 h-1 rounded-full bg-white/40"></div>
+              <span>3D Architectural Viewer</span>
+            </div>
+            <div className="w-px h-3 bg-white/20"></div>
+            <div className="flex items-center gap-1.5">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span>Real-time Rendering</span>
+            </div>
+          </div>
+        </div>
+        {/* Enhanced Crosshair for Pointer Lock */}
         {pointerLocked && firstPerson && !isTourPlaying && (
           <div
             className="pointer-events-none select-none absolute inset-0 flex items-center justify-center z-10"
             aria-hidden="true"
           >
-            <div className="w-3 h-3 relative">
-              <div className="absolute inset-0 rounded-full border border-white/70 bg-black/40" />
-              <div className="absolute inset-[4px] rounded-full bg-white/90" />
+            <div className="relative">
+              {/* Crosshair */}
+              <div className="w-6 h-6 relative">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-1 h-1 rounded-full bg-white shadow-lg"></div>
+                </div>
+                <div className="absolute top-0 left-1/2 w-px h-2 bg-white/60 -translate-x-1/2"></div>
+                <div className="absolute bottom-0 left-1/2 w-px h-2 bg-white/60 -translate-x-1/2"></div>
+                <div className="absolute left-0 top-1/2 h-px w-2 bg-white/60 -translate-y-1/2"></div>
+                <div className="absolute right-0 top-1/2 h-px w-2 bg-white/60 -translate-y-1/2"></div>
+              </div>
+              {/* Outer ring */}
+              <div className="absolute inset-0 w-6 h-6 rounded-full border border-white/30 animate-ping"></div>
             </div>
           </div>
         )}
