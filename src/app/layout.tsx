@@ -7,38 +7,19 @@ export const metadata = {
   description: "Upload CAD & Preview in 3D using Autodesk Forge",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// NOTE: Keep <head> logic in app/head.tsx to avoid mismatches. Removed console error suppression
+// script which altered runtime-only behavior and could mask real hydration issues.
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <head>
-        {/* Forge Viewer Styles */}
-        <link
-          rel="stylesheet"
-          href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css"
-        />
-        {/* Suppress hydration warnings for body attributes */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              // Suppress hydration warnings for body attributes added by extensions
-              if (typeof window !== 'undefined') {
-                const originalError = console.error;
-                console.error = (...args) => {
-                  if (args[0] && typeof args[0] === 'string' && args[0].includes('hydrated but some attributes')) {
-                    return; // Suppress hydration warnings
-                  }
-                  originalError.apply(console, args);
-                };
-              }
-            `,
-          }}
-        />
-      </head>
-      <body className="bg-gray-50 text-gray-900" suppressHydrationWarning={true}>
+      <body className="bg-gray-50 text-gray-900">
         <Navbar />
         <main className="p-6">{children}</main>
-
-        {/* Forge Viewer Script */}
+        {/* Forge Viewer Script (client-side only) */}
         <Script
           src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"
           strategy="beforeInteractive"
@@ -47,10 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
-
-
-
 
 // import "./globals.css";
 // import Navbar from "@/components/Navbar";
