@@ -51,19 +51,15 @@ import {
   TransformControls,
   PointerLockControls,
   ContactShadows,
+  PerspectiveCamera,
   Sky,
   Cloud,
-  Stars,
-  PerspectiveCamera,
-  Lightformer,
-  AccumulativeShadows,
-  RandomizedLight,
-  BakeShadows,
 } from "@react-three/drei";
 import { DoubleSide, Color, Vector3, Group, MOUSE } from "three";
 import { EffectComposer, Bloom, DepthOfField, Vignette, SSAO, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import dynamic from "next/dynamic";
+import { SketchPicker } from "react-color";
 
 const FLOORS = [0, 3, 6, 9, 12];
 
@@ -80,7 +76,6 @@ function FirstPersonWalk({
 
   useEffect(() => {
     if (!enabled) return;
-    // Register key state listeners only when first-person mode is enabled.
     const kd = (e: KeyboardEvent) => {
       keys.current[e.code] = true;
     };
@@ -93,47 +88,26 @@ function FirstPersonWalk({
     const loop = () => {
       if (!enabled) return;
       const THREE = require("three");
-      // Determine forward direction (ignore pitch) & right vector for strafing.
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       const forward = new THREE.Vector3(dir.x, 0, dir.z).normalize();
-      const right = new THREE.Vector3()
-        .crossVectors(forward, new THREE.Vector3(0, 1, 0))
-        .normalize()
-        .negate();
-      // Shift doubles movement speed.
-      const speed =
-        keys.current["ShiftLeft"] || keys.current["ShiftRight"]
-          ? speedRef.current * 2
-          : speedRef.current;
-      const deltaMove = new THREE.Vector3();
-      // Accumulate directional movement (WASD / Arrows) - forward/back & strafe.
-      if (keys.current["KeyW"] || keys.current["ArrowUp"])
-        deltaMove.add(forward.multiplyScalar(speed));
-      if (keys.current["KeyS"] || keys.current["ArrowDown"])
-        deltaMove.add(forward.multiplyScalar(-speed));
-      if (keys.current["KeyA"] || keys.current["ArrowLeft"])
-        deltaMove.add(right.multiplyScalar(-speed));
-      if (keys.current["KeyD"] || keys.current["ArrowRight"])
-        deltaMove.add(right.multiplyScalar(speed));
-      camera.position.add(deltaMove);
-
-      const b =
-        typeof window !== "undefined"
-          ? (window as any).__modelBounds
-          : undefined;
-      if (b?.min && b?.max) {
-        // Clamp movement inside loaded model bounding box with small margin.
-        camera.position.x = Math.min(
-          Math.max(camera.position.x, b.min[0] + 0.2),
-          b.max[0] - 0.2
-        );
-        camera.position.z = Math.min(
-          Math.max(camera.position.z, b.min[2] + 0.2),
-          b.max[2] - 0.2
-        );
+      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0));
+      const up = new THREE.Vector3(0, 1, 0);
+      let move = new THREE.Vector3();
+      const spd = speedRef.current * (keys.current["ShiftLeft"] ? 2 : 1);
+      if (keys.current["KeyW"] || keys.current["ArrowUp"]) move.add(forward);
+      if (keys.current["KeyS"] || keys.current["ArrowDown"]) move.sub(forward);
+      if (keys.current["KeyA"] || keys.current["ArrowLeft"]) move.sub(right);
+      if (keys.current["KeyD"] || keys.current["ArrowRight"]) move.add(right);
+      if (move.lengthSq() > 0) {
+        move.normalize().multiplyScalar(spd);
+        camera.position.add(move);
       }
-      // Eye height is locked per floor for a comfortable viewing level.
+      const b = (window as any)?.__modelBounds;
+      if (b?.min && b?.max) {
+        camera.position.x = Math.min(Math.max(camera.position.x, b.min[0] + 0.2), b.max[0] - 0.2);
+        camera.position.z = Math.min(Math.max(camera.position.z, b.min[2] + 0.2), b.max[2] - 0.2);
+      }
       camera.position.y = floorY;
       raf = requestAnimationFrame(loop);
     };
@@ -292,6 +266,7 @@ function Model({
   transformMode,
   wallColor,
   floorColor,
+  onMeshClick,
 }: {
   url: string;
   selectedFurniture: string | null;
@@ -299,6 +274,7 @@ function Model({
   transformMode: "none" | "translate" | "rotate" | "scale";
   wallColor: string;
   floorColor: string;
+  onMeshClick?: (mesh: any, point: [number, number, number]) => void;
 }) {
   const group = useRef<any>(null);
   const camera = useThree((s) => s.camera);
@@ -308,6 +284,7 @@ function Model({
   const [furniture, setFurniture] = useState<FurnitureItem[]>([]);
   const [modelColor, setModelColor] = useState("#b0bec5");
   const idToObjectRef = useRef<Record<string, Group>>({});
+  const [meshColors, setMeshColors] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!gltf?.scene) return;
@@ -318,12 +295,14 @@ function Model({
           ? obj.material
           : [obj.material];
         mats.forEach((m: any) => {
+          // Determine if this is a floor or wall based on mesh name and geometry
+          const name = obj.name.toLowerCase();
+          const isFloor = name.includes('floor') || name.includes('ground') || name.includes('base');
+          // Check if this mesh has a custom color, otherwise use default
+          const customColor = meshColors.get(obj.uuid);
+          const colorToUse = customColor || (isFloor ? floorColor : wallColor);
+          
           if (!m.isMeshStandardMaterial) {
-            // Determine if this is a floor or wall based on mesh name and geometry
-            const name = obj.name.toLowerCase();
-            const isFloor = name.includes('floor') || name.includes('ground') || name.includes('base');
-            const colorToUse = isFloor ? floorColor : wallColor;
-            
             const newMaterial = new (require("three").MeshStandardMaterial)({
               color: m.color || new Color(colorToUse),
               metalness: 0.1,
@@ -336,10 +315,6 @@ function Model({
             obj.material = newMaterial;
           } else {
             // Apply color based on mesh type
-            const name = obj.name.toLowerCase();
-            const isFloor = name.includes('floor') || name.includes('ground') || name.includes('base');
-            const colorToUse = isFloor ? floorColor : wallColor;
-            
             if (m?.color) m.color = new Color(colorToUse);
             m.metalness = 0.1;
             m.roughness = 0.8;
@@ -351,7 +326,7 @@ function Model({
         });
       }
     });
-  }, [gltf, modelColor, wallColor, floorColor]);
+  }, [gltf, modelColor, wallColor, floorColor, meshColors]);
 
   useEffect(() => {
     if (!gltf?.scene || !camera) return;
@@ -441,12 +416,31 @@ function Model({
       (window as any).updateFurnitureColor = updateFurnitureColor;
       (window as any).updateFurnitureTransform = updateFurnitureTransform;
       (window as any).setModelColor = (c: string) => setModelColor(c);
+      (window as any).updateMeshColor = (meshUuid: string, color: string) => {
+        setMeshColors((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(meshUuid, color);
+          return newMap;
+        });
+      };
     }
   }, []);
 
+  const handleDoubleClick = useCallback((event: any) => {
+    if (!onMeshClick) return;
+    event.stopPropagation();
+    
+    // Get the double-clicked mesh
+    const mesh = event.object;
+    if (mesh && mesh.isMesh) {
+      const point = event.point;
+      onMeshClick(mesh, [point.x, point.y, point.z]);
+    }
+  }, [onMeshClick]);
+
   return (
     <group ref={group}>
-      <primitive object={gltf.scene} />
+      <primitive object={gltf.scene} onDoubleClick={handleDoubleClick} />
       {furniture.map((item) => (
         <Furniture
           key={item.id}
@@ -651,6 +645,9 @@ function R3FViewerComponent({
   const [floorColor, setFloorColor] = useState("#90A955");
   const [furnitureColor, setFurnitureColor] = useState("#8B4513");
   const [mounted, setMounted] = useState(false);
+  const [selectedMesh, setSelectedMesh] = useState<any>(null);
+  const [pickerPosition, setPickerPosition] = useState<[number, number] | null>(null);
+  const [pickerColor, setPickerColor] = useState("#FFFFFF");
   const [furnitureModels, setFurnitureModels] = useState<FurnitureModel[]>([]);
   const [loadingFurniture, setLoadingFurniture] = useState(false);
   const [transformMode, setTransformMode] = useState<
@@ -805,6 +802,10 @@ function R3FViewerComponent({
     // yaw = angle around Y, pitch = arcsin(y)
     yawRef.current = Math.atan2(dir.x, dir.z);
     pitchRef.current = Math.asin(Math.max(-0.999, Math.min(0.999, dir.y)));
+    
+    // Close color picker when entering first-person mode
+    setSelectedMesh(null);
+    setPickerPosition(null);
   }, [firstPerson]);
 
   // Attempt deferred pointer lock after first-person becomes active.
@@ -1278,6 +1279,18 @@ function R3FViewerComponent({
               transformMode={transformMode}
               wallColor={wallColor}
               floorColor={floorColor}
+              onMeshClick={!firstPerson ? (mesh: any, point: [number, number, number]) => {
+                // When a mesh is double-clicked, show the color picker (only when not in first-person mode)
+                setSelectedMesh(mesh);
+                // Get current mesh color
+                const currentColor = mesh.material?.color ? 
+                  `#${mesh.material.color.getHexString()}` : "#FFFFFF";
+                setPickerColor(currentColor);
+                // Position picker at center of screen for easy access
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                setPickerPosition([centerX, centerY]);
+              } : undefined}
             />
             {/* Auto tour camera animation driver */}
             {isTourPlaying && tourPath.length > 1 && (
@@ -1388,58 +1401,29 @@ function R3FViewerComponent({
               color="#000000"
             />
             
-            {/* Realistic Sky with Visible Sun */}
+            {/* Restored Sky & Cloud decorative environment */}
             <Sky
               distance={450000}
-              sunPosition={[100, 20, 100]}
-              inclination={0.49}
+              sunPosition={[120, 30, 100]}
+              inclination={0.47}
               azimuth={0.25}
-              turbidity={3}
-              rayleigh={1}
-              mieCoefficient={0.005}
-              mieDirectionalG={0.7}
+              turbidity={6}
+              rayleigh={1.2}
+              mieCoefficient={0.004}
+              mieDirectionalG={0.65}
             />
-            
-            {/* Clouds using Cloud component from drei */}
-            <Cloud
-              opacity={0.5}
-              speed={0.4}
-              width={10}
-              depth={1.5}
-              segments={20}
-              position={[-20, 15, -30]}
-            />
+            {/* Lightweight cloud layer (reduced count to minimize perf impact) */}
             <Cloud
               opacity={0.4}
-              speed={0.3}
-              width={8}
-              depth={1.2}
+              speed={0.2}
               segments={18}
-              position={[25, 12, -35]}
-            />
-            <Cloud
-              opacity={0.45}
-              speed={0.35}
-              width={12}
-              depth={1.8}
-              segments={22}
-              position={[10, 18, 25]}
-            />
-            <Cloud
-              opacity={0.5}
-              speed={0.4}
-              width={9}
-              depth={1.4}
-              segments={20}
-              position={[-30, 14, 15]}
+              position={[-15, 18, -25]}
             />
             <Cloud
               opacity={0.35}
-              speed={0.25}
-              width={15}
-              depth={2}
-              segments={25}
-              position={[0, 20, -45]}
+              speed={0.18}
+              segments={16}
+              position={[20, 16, -30]}
             />
           </Suspense>
           
@@ -1454,7 +1438,8 @@ function R3FViewerComponent({
               intensity={15}
               radius={3}
               luminanceInfluence={0.3}
-              color="black"
+              // Use Color object to satisfy typing vs raw string
+              color={new Color(0x000000)}
             />
             <Vignette
               offset={0.5}
@@ -1891,6 +1876,87 @@ function R3FViewerComponent({
           </div>
         )}
 
+        {/* Mesh Color Picker - Shows when double-clicking on walls/floors (disabled in first-person mode) */}
+        {selectedMesh && pickerPosition && !firstPerson && (
+          <div 
+            className="absolute z-50 animate-in fade-in zoom-in-95 duration-200"
+            style={{
+              left: `${pickerPosition[0]}px`,
+              top: `${pickerPosition[1]}px`,
+              transform: 'translate(-50%, -50%)'
+            }}
+          >
+            <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-4">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-200">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Customize Surface</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {selectedMesh.name || 'Surface'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedMesh(null);
+                    setPickerPosition(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors p-1 hover:bg-gray-100 rounded-lg"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Color Picker */}
+              <SketchPicker
+                color={pickerColor}
+                onChange={(color) => {
+                  setPickerColor(color.hex);
+                  // Apply color to the mesh immediately
+                  if (selectedMesh && (window as any).updateMeshColor) {
+                    (window as any).updateMeshColor(selectedMesh.uuid, color.hex);
+                  }
+                }}
+                presetColors={[
+                  '#FFFFFF', '#F5F5F5', '#E0E0E0', '#CCCCCC',
+                  '#E3F2FD', '#BBDEFB', '#90CAF9', '#64B5F6',
+                  '#E8F5E8', '#C8E6C9', '#A5D6A7', '#81C784',
+                  '#FCE4EC', '#F8BBD0', '#F48FB1', '#F06292',
+                  '#FFFDE7', '#FFF9C4', '#FFF59D', '#FFF176',
+                  '#FFF8DC', '#FAEBD7', '#FFE4B5', '#FFDAB9',
+                  '#F5F5DC', '#EEE8AA', '#F0E68C', '#BDB76B',
+                  '#90A955', '#8B4513', '#654321', '#D2B48C',
+                ]}
+              />
+
+              {/* Quick Actions */}
+              <div className="mt-3 pt-3 border-t border-gray-200 flex gap-2">
+                <button
+                  onClick={() => {
+                    setPickerColor('#FFFFFF');
+                    if (selectedMesh && (window as any).updateMeshColor) {
+                      (window as any).updateMeshColor(selectedMesh.uuid, '#FFFFFF');
+                    }
+                  }}
+                  className="flex-1 px-3 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Reset
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedMesh(null);
+                    setPickerPosition(null);
+                  }}
+                  className="flex-1 px-3 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Enhanced Floating Hints */}
         {showHints && (
           <div className="absolute left-6 bottom-6 z-10 max-w-xs animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1904,6 +1970,7 @@ function R3FViewerComponent({
                 <div className="flex-1">
                   <h5 className="font-semibold text-sm mb-2">Quick Start</h5>
                   <div className="text-xs text-gray-300 space-y-1">
+                    <p>• <strong>Double-click walls/floors</strong> to change colors</p>
                     <p>• <strong>Drag</strong> to rotate • <strong>Scroll</strong> to zoom</p>
                     <p>• <strong>WASD</strong> for 360° walk mode</p>
                     <p>• <strong>PageUp/Down</strong> to change floors</p>
