@@ -157,7 +157,7 @@ export default function TruePanoramicViewer({ src }: TruePanoramicViewerProps) {
                 width: '1600px', // Wide panoramic image
                 height: '100%',
                 objectFit: 'cover',
-                imageRendering: 'high-quality',
+                imageRendering: 'auto',
                 filter: 'contrast(1.05) saturate(1.1)',
                 display: 'block',
                 minWidth: '1600px',

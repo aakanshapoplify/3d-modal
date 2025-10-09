@@ -166,7 +166,7 @@ export default function AdvancedPanoramicViewer({ src }: AdvancedPanoramicViewer
                 width: '2000px', // Fixed width for panoramic image
                 height: '100%',
                 objectFit: 'cover',
-                imageRendering: 'high-quality',
+                imageRendering: 'auto',
                 filter: 'contrast(1.1) saturate(1.1)',
                 display: 'block'
               }}

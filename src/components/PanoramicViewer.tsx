@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import MultipleImageViewer from "./MultipleImageViewer";
 import SphericalPanoramicViewer from "./SphericalPanoramicViewer";
+import PanoramicToolbar from "./PanoramicToolbar";
 
 type PanoramicType = "images" | "photo-sphere" | "video";
 
@@ -12,6 +13,10 @@ interface PanoramicViewerProps {
 
 export default function PanoramicViewer({ type, files }: PanoramicViewerProps) {
   const [imageUrls, setImageUrls] = useState<string[]>([]);
+
+  // Auto-rotate state lifted here so toolbar and viewer are separated
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [autoRotateSpeed, setAutoRotateSpeed] = useState<number>(5); // degrees per second
 
   // Create object URLs for files
   useEffect(() => {
@@ -53,7 +58,15 @@ export default function PanoramicViewer({ type, files }: PanoramicViewerProps) {
     if (imageUrls.length === 0) return null;
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 relative">
+        {/* Toolbar shown when viewing a single panorama */}
+        <PanoramicToolbar
+          autoRotate={autoRotate}
+          speed={autoRotateSpeed}
+          onToggleAutoRotate={(next) => setAutoRotate(next)}
+          onChangeSpeed={(s) => setAutoRotateSpeed(s)}
+        />
+
         <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 p-6 rounded-xl shadow-sm">
           <div className="flex items-start space-x-3">
             <div className="flex-shrink-0">
@@ -74,7 +87,12 @@ export default function PanoramicViewer({ type, files }: PanoramicViewerProps) {
           </div>
         </div>
         
-        <SphericalPanoramicViewer src={imageUrls[0]} />
+        <SphericalPanoramicViewer
+          src={imageUrls[0]}
+          isAutoRotating={autoRotate}
+          autoRotateSpeed={autoRotateSpeed}
+          onToggleAutoRotate={(next) => setAutoRotate(next)}
+        />
       </div>
     );
   };

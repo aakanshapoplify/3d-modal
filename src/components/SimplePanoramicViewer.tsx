@@ -149,7 +149,7 @@ export default function SimplePanoramicViewer({ src }: SimplePanoramicViewerProp
                 minWidth: '200%',
                 height: '100%',
                 transform: 'translateZ(0)',
-                imageRendering: 'high-quality'
+                imageRendering: 'auto'
               }}
             />
           </div>

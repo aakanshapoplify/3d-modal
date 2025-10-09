@@ -3,15 +3,19 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 interface SphericalPanoramicViewerProps {
   src: string;
+  isAutoRotating?: boolean;
+  autoRotateSpeed?: number; // degrees per second
+  onToggleAutoRotate?: (next: boolean) => void;
 }
 
-export default function SphericalPanoramicViewer({ src }: SphericalPanoramicViewerProps) {
+export default function SphericalPanoramicViewer({ src, isAutoRotating: isAutoRotatingProp, autoRotateSpeed: autoRotateSpeedProp, onToggleAutoRotate }: SphericalPanoramicViewerProps) {
   // UI state (throttled updates)
   const [isDragging, setIsDragging] = useState(false);
   const [rotationY, setRotationY] = useState(0); // Horizontal rotation (yaw)
   const [rotationX, setRotationX] = useState(0); // Vertical rotation (pitch)
   const [zoom, setZoom] = useState(1);
-  const [isAutoRotating, setIsAutoRotating] = useState(false);
+  // keep an internal state for convenience but sync from props
+  const [isAutoRotatingState, setIsAutoRotatingState] = useState<boolean>(!!isAutoRotatingProp);
   const [isFullscreen, setIsFullscreen] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,6 +41,7 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
   const autoRotateSpeedRef = useRef(5); // degrees per second
   const lastFrameTimeRef = useRef<number | null>(null);
   const lastUiSyncRef = useRef(0);
+  const isAutoRotatingRef = useRef<boolean>(!!isAutoRotatingProp);
 
   // Crossfade between images
   const imageFadeRef = useRef(1); // 0..1 (1 means fully new image)
@@ -44,6 +49,19 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
 
   // keep ref in sync
   useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
+
+  // sync controlled auto-rotate prop -> internal state/ref
+  useEffect(() => {
+    isAutoRotatingRef.current = !!isAutoRotatingProp;
+    setIsAutoRotatingState(!!isAutoRotatingProp);
+  }, [isAutoRotatingProp]);
+
+  // sync controlled auto-rotate speed prop -> ref
+  useEffect(() => {
+    if (typeof autoRotateSpeedProp === 'number' && !isNaN(autoRotateSpeedProp)) {
+      autoRotateSpeedRef.current = autoRotateSpeedProp;
+    }
+  }, [autoRotateSpeedProp]);
 
   // Load and process the panoramic image
   useEffect(() => {
@@ -144,8 +162,8 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
     const dt = Math.min(0.05, Math.max(0.0001, (now - last) / 1000)); // clamp delta [0.1ms..50ms]
     lastFrameTimeRef.current = now;
 
-    // Auto-rotate: move target yaw by speed (deg/s)
-    if (isAutoRotating) {
+    // Auto-rotate: move target yaw by speed (deg/s) using ref
+    if (isAutoRotatingRef.current) {
       targetYawRef.current = (targetYawRef.current + autoRotateSpeedRef.current * dt) % 360;
     }
 
@@ -206,7 +224,7 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
     }
 
     animationRef.current = requestAnimationFrame(tick);
-  }, [isAutoRotating]);
+  }, []);
 
   // Unified pointer handlers
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
@@ -216,8 +234,14 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
     velocityYawRef.current = 0;
     velocityPitchRef.current = 0;
-    setIsAutoRotating(false);
-  }, []);
+    // stop auto-rotate on user interaction
+    if (onToggleAutoRotate) {
+      onToggleAutoRotate(false);
+    } else {
+      isAutoRotatingRef.current = false;
+      setIsAutoRotatingState(false);
+    }
+  }, [onToggleAutoRotate]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDraggingRef.current) return;
@@ -254,8 +278,13 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
     targetZoomRef.current = 1;
     velocityYawRef.current = 0;
     velocityPitchRef.current = 0;
-    setIsAutoRotating(false);
-  }, []);
+    if (onToggleAutoRotate) {
+      onToggleAutoRotate(false);
+    } else {
+      isAutoRotatingRef.current = false;
+      setIsAutoRotatingState(false);
+    }
+  }, [onToggleAutoRotate]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -375,9 +404,14 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
           
           {/* Auto-rotate toggle */}
           <button
-            onClick={() => setIsAutoRotating(!isAutoRotating)}
+            onClick={() => {
+              const next = !isAutoRotatingRef.current;
+              if (onToggleAutoRotate) onToggleAutoRotate(next);
+              isAutoRotatingRef.current = next;
+              setIsAutoRotatingState(next);
+            }}
             className={`p-2 rounded-xl transition-all hover:scale-110 ${
-              isAutoRotating 
+              isAutoRotatingRef.current 
                 ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg shadow-purple-500/50' 
                 : 'text-white hover:bg-white/10'
             }`}
@@ -427,10 +461,10 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
             <span className="text-yellow-400">↕</span>
             <span className="font-medium">Pitch: {Math.round(rotationX)}°</span>
           </div>
-          {isAutoRotating && (
+          {(isAutoRotatingState) && (
             <div className="flex items-center space-x-3 text-purple-400">
               <span>🔄</span>
-              <span className="font-medium">Auto-rotating</span>
+              <span className="font-medium">Auto-rotating ({autoRotateSpeedRef.current}°/s)</span>
             </div>
           )}
           {isFullscreen && (
