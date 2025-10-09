@@ -1,6 +1,8 @@
 "use client";
 import { FLOORS } from "./constants";
 
+// Tracks the ground planes for placing objects.
+// Tracks the surface coordinates 
 export default function GroundPlanes({
   onPlace,
   isActive,
