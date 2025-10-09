@@ -6,48 +6,56 @@ interface SphericalPanoramicViewerProps {
 }
 
 export default function SphericalPanoramicViewer({ src }: SphericalPanoramicViewerProps) {
+  // UI state (throttled updates)
   const [isDragging, setIsDragging] = useState(false);
   const [rotationY, setRotationY] = useState(0); // Horizontal rotation (yaw)
   const [rotationX, setRotationX] = useState(0); // Vertical rotation (pitch)
   const [zoom, setZoom] = useState(1);
-  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
   const [isAutoRotating, setIsAutoRotating] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const autoRotateRef = useRef<NodeJS.Timeout | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const prevImageRef = useRef<HTMLImageElement | null>(null);
   const animationRef = useRef<number | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
-  // Auto-rotation effect
-  useEffect(() => {
-    if (isAutoRotating) {
-      autoRotateRef.current = setInterval(() => {
-        setRotationY(prev => (prev + 0.5) % 360);
-      }, 50);
-    } else {
-      if (autoRotateRef.current) {
-        clearInterval(autoRotateRef.current);
-        autoRotateRef.current = null;
-      }
-    }
+  // Pointer tracking
+  const lastPointerRef = useRef({ x: 0, y: 0 });
 
-    return () => {
-      if (autoRotateRef.current) {
-        clearInterval(autoRotateRef.current);
-      }
-    };
-  }, [isAutoRotating]);
+  // Physics/smoothing refs
+  const targetYawRef = useRef(0);
+  const targetPitchRef = useRef(0);
+  const targetZoomRef = useRef(1);
+  const currentYawRef = useRef(0);
+  const currentPitchRef = useRef(0);
+  const currentZoomRef = useRef(1);
+  const velocityYawRef = useRef(0);
+  const velocityPitchRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const autoRotateSpeedRef = useRef(5); // degrees per second
+  const lastFrameTimeRef = useRef<number | null>(null);
+  const lastUiSyncRef = useRef(0);
+
+  // Crossfade between images
+  const imageFadeRef = useRef(1); // 0..1 (1 means fully new image)
+  const imageTransitionSec = 0.35;
+
+  // keep ref in sync
+  useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
 
   // Load and process the panoramic image
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
+      // Prepare crossfade: move current image to prev, set new one, reset fade
+      if (imageRef.current) {
+        prevImageRef.current = imageRef.current;
+        imageFadeRef.current = 0; // start transition
+      }
       imageRef.current = img;
-      drawPanorama();
     };
     img.src = src;
   }, [src]);
@@ -78,45 +86,31 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
     return () => { ro.disconnect(); resizeObserverRef.current = null; };
   }, []);
 
-  // Draw the spherical panorama
-  const drawPanorama = useCallback(() => {
-    const canvas = canvasRef.current;
-    const image = imageRef.current;
-    if (!canvas || !image) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear canvas (use CSS pixels)
-    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  // Draw a frame for a given image and view params
+  const drawImageFrame = (ctx: CanvasRenderingContext2D, image: HTMLImageElement, yawDeg: number, pitchDeg: number, zoomVal: number) => {
+    const canvas = ctx.canvas as HTMLCanvasElement;
+    const canvasWidth = canvas.clientWidth;
+    const canvasHeight = canvas.clientHeight;
 
     // Calculate the field of view based on zoom
     const baseFOV = 75;
-    const fov = baseFOV / zoom;
+    const fov = baseFOV / zoomVal;
 
-    // Calculate image dimensions for spherical projection
-    const canvasWidth = canvas.clientWidth;
-    const canvasHeight = canvas.clientHeight;
-    
-    // For equirectangular panorama (2:1 aspect ratio)
     const imageWidth = image.width;
     const imageHeight = image.height;
 
-    // Calculate how much of the image to show based on FOV
     const horizontalPixelsPerDegree = imageWidth / 360;
     const verticalPixelsPerDegree = imageHeight / 180;
     const visibleWidth = fov * horizontalPixelsPerDegree;
     const visibleHeight = fov * verticalPixelsPerDegree;
 
-    // Calculate source rectangle in the panoramic image with wrap-around
-    const normRotY = ((rotationY % 360) + 360) % 360; // 0..359
+    const normRotY = ((yawDeg % 360) + 360) % 360; // 0..359
     let sourceX = (normRotY / 360) * imageWidth - visibleWidth / 2;
     while (sourceX < 0) sourceX += imageWidth;
     while (sourceX >= imageWidth) sourceX -= imageWidth;
-    const rawSourceY = ((rotationX + 90) / 180) * imageHeight - visibleHeight / 2;
+    const rawSourceY = ((pitchDeg + 90) / 180) * imageHeight - visibleHeight / 2;
     const sourceY = Math.max(0, Math.min(imageHeight - visibleHeight, rawSourceY));
 
-    // Draw, handling wrap-around horizontally
     if (sourceX + visibleWidth <= imageWidth) {
       ctx.drawImage(
         image,
@@ -126,95 +120,140 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
     } else {
       const firstWidth = imageWidth - sourceX;
       const secondWidth = visibleWidth - firstWidth;
-      // Draw right-edge segment
       ctx.drawImage(
         image,
         sourceX, sourceY, firstWidth, visibleHeight,
         0, 0, (canvasWidth * firstWidth) / visibleWidth, canvasHeight
       );
-      // Draw left-edge wrapped segment
       ctx.drawImage(
         image,
         0, sourceY, secondWidth, visibleHeight,
         (canvasWidth * firstWidth) / visibleWidth, 0, (canvasWidth * secondWidth) / visibleWidth, canvasHeight
       );
     }
+  };
 
-    // Schedule next frame for smooth animation
-    if (isDragging || isAutoRotating) {
-      animationRef.current = requestAnimationFrame(drawPanorama);
+  // Continuous render loop with smoothing and inertia
+  const tick = useCallback((time: number) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+
+    const now = time;
+    const last = lastFrameTimeRef.current ?? now;
+    const dt = Math.min(0.05, Math.max(0.0001, (now - last) / 1000)); // clamp delta [0.1ms..50ms]
+    lastFrameTimeRef.current = now;
+
+    // Auto-rotate: move target yaw by speed (deg/s)
+    if (isAutoRotating) {
+      targetYawRef.current = (targetYawRef.current + autoRotateSpeedRef.current * dt) % 360;
     }
-  }, [rotationY, rotationX, zoom, isDragging, isAutoRotating]);
 
-  // Trigger redraw when parameters change
-  useEffect(() => {
-    drawPanorama();
-  }, [drawPanorama]);
+    // Apply inertia to targets when not dragging
+    if (!isDraggingRef.current) {
+      targetYawRef.current += velocityYawRef.current * dt;
+      targetPitchRef.current += velocityPitchRef.current * dt;
+      const friction = 2.5; // larger = faster slowdown
+      const decay = Math.max(0, 1 - friction * dt);
+      velocityYawRef.current *= decay;
+      velocityPitchRef.current *= decay;
+    }
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Clamp pitch and zoom targets
+    targetPitchRef.current = Math.max(-90, Math.min(90, targetPitchRef.current));
+    targetZoomRef.current = Math.max(0.5, Math.min(3, targetZoomRef.current));
+
+    // Smoothly approach targets (LERP)
+    const follow = 0.18; // responsiveness
+    currentYawRef.current = currentYawRef.current + (targetYawRef.current - currentYawRef.current) * follow;
+    currentPitchRef.current = currentPitchRef.current + (targetPitchRef.current - currentPitchRef.current) * follow;
+    currentZoomRef.current = currentZoomRef.current + (targetZoomRef.current - currentZoomRef.current) * follow;
+
+    // Clear canvas (CSS pixels)
+    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+    // Crossfade draw
+    const newImg = imageRef.current;
+    const prevImg = prevImageRef.current;
+    if (newImg) {
+      if (prevImg && imageFadeRef.current < 1) {
+        // progress fade
+        imageFadeRef.current = Math.min(1, imageFadeRef.current + dt / imageTransitionSec);
+        // draw previous
+        ctx.save();
+        ctx.globalAlpha = 1 - imageFadeRef.current;
+        drawImageFrame(ctx, prevImg, currentYawRef.current, currentPitchRef.current, currentZoomRef.current);
+        ctx.restore();
+        // draw new
+        ctx.save();
+        ctx.globalAlpha = imageFadeRef.current;
+        drawImageFrame(ctx, newImg, currentYawRef.current, currentPitchRef.current, currentZoomRef.current);
+        ctx.restore();
+        if (imageFadeRef.current >= 1) {
+          prevImageRef.current = null; // done
+        }
+      } else {
+        drawImageFrame(ctx, newImg, currentYawRef.current, currentPitchRef.current, currentZoomRef.current);
+      }
+    }
+
+    // Throttle UI state sync to ~30fps
+    if (now - lastUiSyncRef.current > 33) {
+      lastUiSyncRef.current = now;
+      setRotationY(((currentYawRef.current % 360) + 360) % 360);
+      setRotationX(currentPitchRef.current);
+      setZoom(currentZoomRef.current);
+    }
+
+    animationRef.current = requestAnimationFrame(tick);
+  }, [isAutoRotating]);
+
+  // Unified pointer handlers
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    (e.target as Element).setPointerCapture?.(e.pointerId);
     setIsDragging(true);
-    setLastMousePos({ x: e.clientX, y: e.clientY });
+    isDraggingRef.current = true;
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
+    velocityYawRef.current = 0;
+    velocityPitchRef.current = 0;
     setIsAutoRotating(false);
   }, []);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return;
-    
-    const deltaX = e.clientX - lastMousePos.x;
-    const deltaY = e.clientY - lastMousePos.y;
-    
-    // Horizontal rotation (yaw) - full 360° rotation
-    setRotationY(prev => (prev + deltaX * 0.5) % 360);
-    
-    // Vertical rotation (pitch) - limited to prevent over-rotation
-    setRotationX(prev => Math.max(-90, Math.min(90, prev - deltaY * 0.3)));
-    
-    setLastMousePos({ x: e.clientX, y: e.clientY });
-  }, [isDragging, lastMousePos]);
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    const dx = e.clientX - lastPointerRef.current.x;
+    const dy = e.clientY - lastPointerRef.current.y;
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
 
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
+    const yawDelta = dx * 0.35; // deg per px
+    const pitchDelta = -dy * 0.22; // deg per px
+    targetYawRef.current = (targetYawRef.current + yawDelta) % 360;
+    targetPitchRef.current = Math.max(-90, Math.min(90, targetPitchRef.current + pitchDelta));
+    // Update velocities for inertia (deg/s)
+    const sampleHz = 1000 / 16; // ~60Hz baseline
+    velocityYawRef.current = yawDelta * sampleHz / 1000;
+    velocityPitchRef.current = pitchDelta * sampleHz / 1000;
   }, []);
 
-  const handleMouseLeave = useCallback(() => {
+  const handlePointerUpOrLeave = useCallback(() => {
     setIsDragging(false);
+    isDraggingRef.current = false;
   }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.max(0.5, Math.min(3, prev * delta)));
-  }, []);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      setIsDragging(true);
-      setLastMousePos({ x: e.touches[0].clientX, y: e.touches[0].clientY });
-      setIsAutoRotating(false);
-    }
-  }, []);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDragging || e.touches.length !== 1) return;
-    e.preventDefault();
-    
-    const deltaX = e.touches[0].clientX - lastMousePos.x;
-    const deltaY = e.touches[0].clientY - lastMousePos.y;
-    
-    setRotationY(prev => (prev + deltaX * 0.5) % 360);
-    setRotationX(prev => Math.max(-90, Math.min(90, prev - deltaY * 0.3)));
-    
-    setLastMousePos({ x: e.touches[0].clientX, y: e.touches[0].clientY });
-  }, [isDragging, lastMousePos]);
-
-  const handleTouchEnd = useCallback(() => {
-    setIsDragging(false);
+    const next = currentZoomRef.current * delta;
+    targetZoomRef.current = Math.max(0.5, Math.min(3, next));
   }, []);
 
   const resetView = useCallback(() => {
-    setRotationY(0);
-    setRotationX(0);
-    setZoom(1);
+    // reset targets and currents for immediate smooth transition
+    targetYawRef.current = 0;
+    targetPitchRef.current = 0;
+    targetZoomRef.current = 1;
+    velocityYawRef.current = 0;
+    velocityPitchRef.current = 0;
     setIsAutoRotating(false);
   }, []);
 
@@ -238,6 +277,23 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Kick off render loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // initialize from UI state
+    targetYawRef.current = rotationY;
+    targetPitchRef.current = rotationX;
+    targetZoomRef.current = zoom;
+    currentYawRef.current = rotationY;
+    currentPitchRef.current = rotationX;
+    currentZoomRef.current = zoom;
+    lastFrameTimeRef.current = null;
+    animationRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [tick]);
+
   return (
     <div className="w-full h-full">
       <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 p-4 rounded-lg mb-4">
@@ -253,14 +309,12 @@ export default function SphericalPanoramicViewer({ src }: SphericalPanoramicView
         <div
           ref={containerRef}
           className="w-full h-[600px] rounded-lg shadow-2xl overflow-hidden cursor-grab active:cursor-grabbing relative bg-black"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUpOrLeave}
+          onPointerCancel={handlePointerUpOrLeave}
+          onPointerLeave={handlePointerUpOrLeave}
           onWheel={handleWheel}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
         >
           {/* Canvas for spherical panorama rendering */}
           <canvas
